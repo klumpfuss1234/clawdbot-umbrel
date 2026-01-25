@@ -25,7 +25,7 @@ services:
       NODE_ENV: production
       
       # Home directory (matches Dockerfile user)
-      HOME: /home/clawdbot
+      HOME: /home/node
     
     volumes:
       # Persistent data directories

@@ -55,28 +55,27 @@ RUN apt-get update && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
-# Create non-root user (UID 1000 per Umbrel best practice)
-RUN groupadd -g 1000 clawdbot && \
-    useradd -u 1000 -g clawdbot -m -s /bin/bash clawdbot
+# Use the existing 'node' user (UID 1000) per Umbrel best practice
+# The node image already has a 'node' user with UID 1000, so we reuse it
 
 WORKDIR /app
 
 # Copy built application from builder stage
-COPY --from=builder --chown=clawdbot:clawdbot /app/dist ./dist
-COPY --from=builder --chown=clawdbot:clawdbot /app/node_modules ./node_modules
-COPY --from=builder --chown=clawdbot:clawdbot /app/package.json ./package.json
+COPY --from=builder --chown=node:node /app/dist ./dist
+COPY --from=builder --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/package.json ./package.json
 
-# Copy entrypoint script
-COPY --chown=clawdbot:clawdbot entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Copy entrypoint script and convert line endings (in case of Windows CRLF)
+COPY --chown=node:node entrypoint.sh /entrypoint.sh
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Create data directories (will be overwritten by volume mounts)
 RUN mkdir -p /data/.clawdbot /data/clawd /data/logs && \
-    chown -R clawdbot:clawdbot /data
+    chown -R node:node /data
 
 # Environment
 ENV NODE_ENV=production
-ENV HOME=/home/clawdbot
+ENV HOME=/home/node
 ENV CLAWDBOT_STATE_DIR=/data/.clawdbot
 ENV CLAWDBOT_LOG_FILE=/data/logs/clawdbot.log
 
@@ -90,7 +89,7 @@ EXPOSE 18789
 # For standalone deployments, healthchecks can be added via docker-compose.yml
 
 # Switch to non-root user
-USER clawdbot
+USER node
 
 # Use tini as init system for proper signal handling
 ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

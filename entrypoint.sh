@@ -43,6 +43,7 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
   # Create minimal valid JSON config for Umbrel
   # Only include keys that Clawdbot's config validator accepts
   # Note: Clawdbot substitutes ${ENV_VAR} at config load time
+  # Explicitly disable plugins to avoid missing plugin errors
   cat > "${CONFIG_FILE}" << 'CONFIGEOF'
 {
   "gateway": {
@@ -60,6 +61,9 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
     "defaults": {
       "workspace": "/data/clawd"
     }
+  },
+  "plugins": {
+    "enabled": false
   }
 }
 CONFIGEOF
@@ -81,11 +85,16 @@ echo "[entrypoint] Control UI: http://<umbrel-ip>:<app-port>/?token=<your-token>
 # -----------------------------------------------------------------------------
 # The gateway reads config from CLAWDBOT_STATE_DIR (or ~/.clawdbot)
 # We override HOME to ensure consistent paths
-export HOME=/home/clawdbot
+export HOME=/home/node
 
 # Log to file and stdout for debugging
 LOG_FILE="${LOG_DIR}/clawdbot.log"
 
+# Run doctor to fix any config issues before starting
+echo "[entrypoint] Running doctor to fix config..."
+node /app/dist/index.js doctor --fix 2>&1 || true
+
+echo "[entrypoint] Starting gateway..."
 exec node /app/dist/index.js gateway \
   --bind lan \
   --port 18789 \
