@@ -6,7 +6,7 @@ tagline: Your own personal AI assistant - any platform, self-hosted
 # Umbrel will help finalize the icon before the app goes live
 icon: https://raw.githubusercontent.com/clawdbot/clawdbot/main/docs/assets/logo.png
 category: utilities
-version: "1.0.0"
+version: "2026.1.23"
 port: 30189
 description: >-
   Clawdbot is a self-hosted AI assistant control plane that connects to
