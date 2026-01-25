@@ -109,7 +109,7 @@ jobs:
           # Handles both old (clawdbot-docker) and new (clawdbot-umbrel) image names
           # Replace with: image: <image>:<version>@<digest>
           if sed -i "s|^\([[:space:]]*image:[[:space:]]*\).*|\1${IMAGE}:${VERSION}@${DIGEST}|g" "$COMPOSE_FILE"; then
-            echo "Successfully updated docker-compose.yml"
+            echo "✅ Successfully updated docker-compose.yml"
           else
             echo "ERROR: Failed to update docker-compose.yml"
             mv "${COMPOSE_FILE}.bak" "$COMPOSE_FILE"

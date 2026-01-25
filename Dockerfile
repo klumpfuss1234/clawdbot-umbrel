@@ -65,6 +65,9 @@ COPY --from=builder --chown=node:node /app/dist ./dist
 COPY --from=builder --chown=node:node /app/node_modules ./node_modules
 COPY --from=builder --chown=node:node /app/package.json ./package.json
 
+# Copy bundled extensions (required for memory-core plugin validation)
+COPY --from=builder --chown=node:node /app/extensions ./extensions
+
 # Copy entrypoint script and convert line endings (in case of Windows CRLF)
 COPY --chown=node:node entrypoint.sh /entrypoint.sh
 RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh

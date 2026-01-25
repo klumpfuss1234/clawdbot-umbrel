@@ -43,7 +43,8 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
   # Create minimal valid JSON config for Umbrel
   # Only include keys that Clawdbot's config validator accepts
   # Note: Clawdbot substitutes ${ENV_VAR} at config load time
-  # Explicitly disable plugins to avoid missing plugin errors
+  # Bundled extensions (memory-core) are now included in the image,
+  # so we let Clawdbot use its default plugin configuration
   cat > "${CONFIG_FILE}" << 'CONFIGEOF'
 {
   "gateway": {
@@ -61,9 +62,6 @@ if [[ ! -f "${CONFIG_FILE}" ]]; then
     "defaults": {
       "workspace": "/data/clawd"
     }
-  },
-  "plugins": {
-    "enabled": false
   }
 }
 CONFIGEOF
