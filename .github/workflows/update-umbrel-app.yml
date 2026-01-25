@@ -1,0 +1,210 @@
+# Update Umbrel App
+# =================
+# This workflow updates the Umbrel app definition when a new image is built.
+# It can:
+# - Update the docker-compose.yml with new image digest
+# - Update umbrel-app.yml version
+# - Open a PR to the getumbrel/umbrel-apps repository
+
+name: Update Umbrel App
+
+on:
+  # Triggered by build-image workflow
+  repository_dispatch:
+    types: [new-image]
+  
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to update to'
+        required: true
+      digest:
+        description: 'Image digest (sha256:...)'
+        required: true
+      image:
+        description: 'Image name (without tag/digest)'
+        required: false
+        default: 'ghcr.io/harmalh/clawdbot-umbrel'
+
+env:
+  UMBREL_APPS_REPO: getumbrel/umbrel-apps
+  APP_ID: clawdbot
+
+jobs:
+  update-app:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v4
+        with:
+          path: clawdbot-umbrel
+
+      - name: Parse event payload
+        id: payload
+        run: |
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            echo "version=${{ github.event.client_payload.version }}" >> $GITHUB_OUTPUT
+            echo "digest=${{ github.event.client_payload.digest }}" >> $GITHUB_OUTPUT
+            echo "image=${{ github.event.client_payload.image }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "digest=${{ github.event.inputs.digest }}" >> $GITHUB_OUTPUT
+            echo "image=${{ github.event.inputs.image }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Fork umbrel-apps (if not exists)
+        env:
+          GH_TOKEN: ${{ secrets.UMBREL_APPS_PAT }}
+        run: |
+          # Check if fork exists
+          FORK_EXISTS=$(gh api repos/${{ github.repository_owner }}/umbrel-apps --jq '.id' 2>/dev/null || echo "")
+          
+          if [[ -z "$FORK_EXISTS" ]]; then
+            echo "Creating fork of umbrel-apps..."
+            gh repo fork ${{ env.UMBREL_APPS_REPO }} --clone=false
+            sleep 5  # Wait for fork to be ready
+          else
+            echo "Fork already exists"
+          fi
+
+      - name: Check out umbrel-apps fork
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/umbrel-apps
+          token: ${{ secrets.UMBREL_APPS_PAT }}
+          path: umbrel-apps
+
+      - name: Update docker-compose.yml
+        run: |
+          VERSION="${{ steps.payload.outputs.version }}"
+          DIGEST="${{ steps.payload.outputs.digest }}"
+          IMAGE="${{ steps.payload.outputs.image }}"
+          
+          COMPOSE_FILE="umbrel-apps/${{ env.APP_ID }}/docker-compose.yml"
+          
+          # Check if app directory exists
+          if [[ ! -d "umbrel-apps/${{ env.APP_ID }}" ]]; then
+            echo "App directory doesn't exist, copying from this repo..."
+            cp -r clawdbot-umbrel/umbrel-app/${{ env.APP_ID }} umbrel-apps/
+          fi
+          
+          # Validate digest format (must include sha256: prefix)
+          if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "ERROR: Invalid digest format. Expected sha256:... but got: $DIGEST"
+            exit 1
+          fi
+          
+          # Verify docker-compose.yml exists
+          if [[ ! -f "$COMPOSE_FILE" ]]; then
+            echo "ERROR: docker-compose.yml not found at $COMPOSE_FILE"
+            exit 1
+          fi
+          
+          # Backup original file
+          cp "$COMPOSE_FILE" "${COMPOSE_FILE}.bak"
+          
+          # Update the image line with digest
+          # Match any image line in the gateway service (more flexible pattern)
+          # Handles both old (clawdbot-docker) and new (clawdbot-umbrel) image names
+          # Replace with: image: <image>:<version>@<digest>
+          if sed -i "s|^\([[:space:]]*image:[[:space:]]*\).*|\1${IMAGE}:${VERSION}@${DIGEST}|g" "$COMPOSE_FILE"; then
+            echo "Successfully updated docker-compose.yml"
+          else
+            echo "ERROR: Failed to update docker-compose.yml"
+            mv "${COMPOSE_FILE}.bak" "$COMPOSE_FILE"
+            exit 1
+          fi
+          
+          # Verify the update worked
+          if ! grep -q "image:.*@${DIGEST}" "$COMPOSE_FILE"; then
+            echo "ERROR: Digest pinning verification failed"
+            echo "Current image line:"
+            grep "image:" "$COMPOSE_FILE"
+            mv "${COMPOSE_FILE}.bak" "$COMPOSE_FILE"
+            exit 1
+          fi
+          
+          echo "Updated docker-compose.yml:"
+          grep "image:" "$COMPOSE_FILE"
+
+      - name: Update umbrel-app.yml version
+        run: |
+          VERSION="${{ steps.payload.outputs.version }}"
+          APP_FILE="umbrel-apps/${{ env.APP_ID }}/umbrel-app.yml"
+          
+          # Remove 'v' prefix if present for version field
+          CLEAN_VERSION="${VERSION#v}"
+          
+          # Update version field
+          sed -i "s|^version:.*|version: \"${CLEAN_VERSION}\"|g" "$APP_FILE"
+          
+          # Update release notes
+          DATE=$(date +%Y-%m-%d)
+          sed -i "s|^releaseNotes:.*|releaseNotes: \"Updated to Clawdbot ${VERSION} (${DATE})\"|g" "$APP_FILE"
+          
+          echo "Updated umbrel-app.yml:"
+          grep -E "^version:|^releaseNotes:" "$APP_FILE"
+
+      - name: Create branch and commit
+        working-directory: umbrel-apps
+        run: |
+          VERSION="${{ steps.payload.outputs.version }}"
+          BRANCH="update-clawdbot-${VERSION}"
+          
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Create branch
+          git checkout -b "$BRANCH"
+          
+          # Add and commit
+          git add .
+          git commit -m "Update Clawdbot to ${VERSION}" -m "Automated update from clawdbot-umbrel CI"
+          
+          # Push
+          git push origin "$BRANCH" --force
+
+      - name: Create PR to upstream
+        env:
+          GH_TOKEN: ${{ secrets.UMBREL_APPS_PAT }}
+        run: |
+          VERSION="${{ steps.payload.outputs.version }}"
+          BRANCH="update-clawdbot-${VERSION}"
+          
+          # Check if PR already exists
+          EXISTING_PR=$(gh pr list --repo ${{ env.UMBREL_APPS_REPO }} \
+            --head "${{ github.repository_owner }}:${BRANCH}" \
+            --json number --jq '.[0].number' 2>/dev/null || echo "")
+          
+          if [[ -n "$EXISTING_PR" ]]; then
+            echo "PR #${EXISTING_PR} already exists"
+          else
+            # Create PR
+            gh pr create \
+              --repo ${{ env.UMBREL_APPS_REPO }} \
+              --head "${{ github.repository_owner }}:${BRANCH}" \
+              --base master \
+              --title "Update Clawdbot to ${VERSION}" \
+              --body "## Summary
+          
+          This PR updates the Clawdbot app to version ${VERSION}.
+          
+          ## Changes
+          
+          - Updated Docker image to \`${VERSION}\` with digest pinning
+          - Updated app version in umbrel-app.yml
+          
+          ## Testing
+          
+          - [ ] Tested on ARM64 (Raspberry Pi)
+          - [ ] Tested on AMD64
+          - [ ] Control UI accessible via HTTP
+          - [ ] Token authentication working
+          
+          ---
+          
+          *Automated PR from [clawdbot-umbrel](https://github.com/${{ github.repository }})*"
+            
+            echo "Created new PR"
+          fi

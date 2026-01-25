@@ -1,0 +1,163 @@
+# Build and Push Clawdbot Umbrel Image
+# =====================================
+# This workflow builds a multi-arch Docker image when:
+# - A new Clawdbot version is released upstream
+# - Manually triggered via workflow_dispatch
+# - Scheduled to check for new releases weekly
+
+name: Build and Push Image
+
+on:
+  # Check for new releases weekly
+  schedule:
+    - cron: '0 6 * * 0'  # Every Sunday at 6:00 AM UTC
+  
+  # Manual trigger with optional version override
+  workflow_dispatch:
+    inputs:
+      clawdbot_version:
+        description: 'Clawdbot version to build (e.g., v1.0.0 or main)'
+        required: false
+        default: ''
+      force_build:
+        description: 'Force build even if version already exists'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/clawdbot-umbrel
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Get latest Clawdbot release
+        id: upstream
+        run: |
+          # Get latest release from Clawdbot repo
+          LATEST=$(curl -s https://api.github.com/repos/clawdbot/clawdbot/releases/latest | jq -r '.tag_name // "main"')
+          echo "latest_version=${LATEST}" >> $GITHUB_OUTPUT
+          echo "Latest upstream version: ${LATEST}"
+
+      - name: Determine version to build
+        id: check
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.clawdbot_version }}
+          FORCE_BUILD: ${{ github.event.inputs.force_build }}
+          LATEST_VERSION: ${{ steps.upstream.outputs.latest_version }}
+        run: |
+          # Use input version if provided, otherwise use latest
+          VERSION="${INPUT_VERSION:-$LATEST_VERSION}"
+          echo "Building version: ${VERSION}"
+          
+          # Check if this version's image already exists in GHCR
+          # Note: GITHUB_TOKEN is used directly (not base64 encoded) for Bearer auth
+          TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          EXISTING=$(curl -s -H "Authorization: Bearer ${TOKEN}" \
+            "https://ghcr.io/v2/${{ env.IMAGE_NAME }}/tags/list" 2>/dev/null | \
+            jq -r ".tags[]? | select(. == \"${VERSION}\")" || echo "")
+          
+          if [[ -n "$EXISTING" && "$FORCE_BUILD" != "true" ]]; then
+            echo "Version ${VERSION} already exists, skipping build"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+          else
+            echo "Will build version ${VERSION}"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+  build:
+    needs: check-version
+    if: needs.check-version.outputs.should_build == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      version: ${{ needs.check-version.outputs.version }}
+    
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.check-version.outputs.version }}
+            type=raw,value=latest
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            CLAWDBOT_VERSION=${{ needs.check-version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Validate and output digest
+        run: |
+          DIGEST="${{ steps.build.outputs.digest }}"
+          
+          # Validate digest format (must be sha256:...)
+          if [[ -z "$DIGEST" ]]; then
+            echo "ERROR: Digest is empty"
+            exit 1
+          fi
+          
+          if [[ ! "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+            echo "ERROR: Invalid digest format. Expected sha256:... but got: $DIGEST"
+            echo "This may indicate the docker/build-push-action returned an image ID instead of repo digest"
+            exit 1
+          fi
+          
+          echo "Image digest validated: $DIGEST"
+          echo "Full image reference: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@$DIGEST"
+
+  trigger-umbrel-update:
+    needs: build
+    if: needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Umbrel app update
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: new-image
+          client-payload: |
+            {
+              "version": "${{ needs.build.outputs.version }}",
+              "digest": "${{ needs.build.outputs.digest }}",
+              "image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+            }
