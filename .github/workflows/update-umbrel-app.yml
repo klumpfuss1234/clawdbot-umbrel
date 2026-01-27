@@ -167,6 +167,20 @@ jobs:
           
           echo "✅ Fork synced with upstream"
 
+      - name: Check if app exists in upstream (new submission vs update)
+        id: check_upstream
+        working-directory: umbrel-apps
+        run: |
+          # Check if the app already exists in upstream master
+          # This determines if this is a new submission or an update
+          if git ls-tree -r upstream/master --name-only | grep -q "^${{ env.APP_ID }}/"; then
+            echo "App exists in upstream - this is an UPDATE"
+            echo "is_update=true" >> $GITHUB_OUTPUT
+          else
+            echo "App does not exist in upstream - this is a NEW SUBMISSION"
+            echo "is_update=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create or update branch
         id: branch
         working-directory: umbrel-apps
@@ -174,16 +188,15 @@ jobs:
           VERSION="${{ steps.payload.outputs.version }}"
           IS_UPDATE="${{ steps.check_upstream.outputs.is_update }}"
           
-          # For NEW submissions (not yet merged), use a fixed branch name
-          # so all updates go to the same PR until it's merged
+          # Determine branch name based on submission status
           if [[ "$IS_UPDATE" == "true" ]]; then
             # App already exists upstream - use version-specific branch for update PRs
             BRANCH="update-clawdbot-${VERSION}"
+            echo "Using version-specific branch for update: $BRANCH"
           else
-            # New submission - use fixed branch so updates go to same PR (#4557)
-            BRANCH="update-clawdbot-${VERSION}"
-            # Check if there's an existing open PR for any clawdbot submission
-            # If so, reuse that branch instead of creating version-specific ones
+            # New submission - use fixed branch so all updates go to same PR until merged
+            BRANCH="add-clawdbot"
+            echo "Using fixed branch for new submission: $BRANCH"
           fi
           
           # Check if branch already exists on remote
@@ -201,20 +214,6 @@ jobs:
           fi
           
           echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-
-      - name: Check if app exists in upstream (new submission vs update)
-        id: check_upstream
-        working-directory: umbrel-apps
-        run: |
-          # Check if the app already exists in upstream master
-          # This determines if this is a new submission or an update
-          if git ls-tree -r upstream/master --name-only | grep -q "^${{ env.APP_ID }}/"; then
-            echo "App exists in upstream - this is an UPDATE"
-            echo "is_update=true" >> $GITHUB_OUTPUT
-          else
-            echo "App does not exist in upstream - this is a NEW SUBMISSION"
-            echo "is_update=false" >> $GITHUB_OUTPUT
-          fi
 
       - name: Ensure app directory exists
         run: |
