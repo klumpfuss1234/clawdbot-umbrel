@@ -1,18 +1,12 @@
 # Build and Push Clawdbot Umbrel Image
 # =====================================
 # This workflow builds a multi-arch Docker image when:
-# - A new Clawdbot version is released upstream
 # - Manually triggered via workflow_dispatch
-# - Scheduled to check for new releases every 6 hours
 # - Changes pushed to Dockerfile or UI override patches (auto-rebuild)
 
 name: Build and Push Image
 
 on:
-  # Check for new releases every 6 hours
-  schedule:
-    - cron: '0 */6 * * *'  # Every 6 hours at minute 0
-  
   # Auto-rebuild when UI override or Dockerfile changes
   push:
     branches: [main]
