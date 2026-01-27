@@ -21,10 +21,9 @@ test-data/
 # Umbrel app definition (not needed in image)
 umbrel-app/
 
-# Scripts (update automation, not needed in image)
+# Internal files (not needed in image)
+docs/
 scripts/
-
-# Remotion video project (large, not needed in image)
 video/
 
 # Pull request cache

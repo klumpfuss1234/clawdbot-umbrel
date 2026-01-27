@@ -14,12 +14,6 @@ Thumbs.db
 dist/
 node_modules/
 
-# Remotion
-video/node_modules/
-video/dist/
-video/out/
-video/.remotion/
-
 # Docker
 *.log
 *.tar
@@ -35,3 +29,9 @@ video/.remotion/
 *.pem
 *.key
 secrets/
+
+# Internal/development files (not needed in public repo)
+docs/
+scripts/
+video/
+TESTING.md

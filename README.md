@@ -38,45 +38,11 @@ This repository includes a fully automated pipeline that:
 
 ### Running the Pipeline Manually
 
-#### Via GitHub Actions (Recommended)
-
 1. Go to **Actions** > **Build and Push Image**
 2. Click **Run workflow**
 3. Optionally specify a version (e.g., `v2026.1.24`) or leave blank for latest
 4. Check "Force build" if the version already exists
 5. The update workflow will trigger automatically after build
-
-#### Via Local Scripts
-
-**Bash (Linux/macOS/Git Bash):**
-```bash
-# Update to latest version, build image, run lint
-./scripts/update-umbrel.sh
-
-# Update to specific version and create PR
-./scripts/update-umbrel.sh -v v2026.1.24 -p
-
-# Use existing digest (skip build)
-./scripts/update-umbrel.sh -d sha256:abc123... -s
-
-# Dry run (show what would happen)
-./scripts/update-umbrel.sh -n
-```
-
-**PowerShell (Windows):**
-```powershell
-# Update to latest version, build image, run lint
-.\scripts\update-umbrel.ps1
-
-# Update to specific version and create PR
-.\scripts\update-umbrel.ps1 -Version v2026.1.24 -CreatePR
-
-# Use existing digest (skip build)
-.\scripts\update-umbrel.ps1 -Digest "sha256:abc123..." -SkipBuild
-
-# Dry run (show what would happen)
-.\scripts\update-umbrel.ps1 -DryRun
-```
 
 ### Required Secrets
 
